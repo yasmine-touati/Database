@@ -1,0 +1,10 @@
+*.o
+*.exe
+test
+bptree
+
+.vscode/
+.idea/
+
+.DS_Store
+Thumbs.db 
