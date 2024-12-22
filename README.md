@@ -8,4 +8,4 @@ This project implements a B+ Tree data structure with the ability to serialize a
 - Range queries support
 - File pointer storage in leaf nodes
 
-## Project Structure 
+## Project Structure
