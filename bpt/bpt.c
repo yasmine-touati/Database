@@ -1,9 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <string.h>
 #include "bpt.h"
 #include "node.h"
 #include "utils.h"
+#include "dfh.h"
 
 
 
@@ -37,10 +39,18 @@ Node* split_leaf_node(Node *node, int T, int *promote_key) {
     for (int i = mid; i < node->n; i++) {
         new_leaf->keys[i - mid] = node->keys[i];
     }
+
+    int *keys_to_move = malloc(sizeof(int) * (node->n - mid));
+    for (int i = 0; i < node->n - mid; i++) {
+        keys_to_move[i] = new_leaf->keys[i];
+    }
+    dfh_move_lines(node->file_pointer, new_leaf->file_pointer, keys_to_move, node->n - mid);
+    free(keys_to_move);
+
     new_leaf->n = node->n - mid;
     node->n = mid;
 
-    *promote_key = new_leaf->keys[0]; 
+    *promote_key = new_leaf->keys[0];
     new_leaf->next = node->next;
     node->next = new_leaf;
 
@@ -101,17 +111,20 @@ void propagate_up(BPT *tree, Node *child, Node *sibling, int promote_key) {
     }
 }
 
-void insert(BPT *tree, int key) {
+void insert(BPT *tree, int key, const char* line) {
     Node *cursor = tree->root;
 
+    // Traverse to leaf node
     while (!cursor->is_leaf) {
         int i = 0;
-        while (i < cursor->n && key > cursor->keys[i]) i++;
+        while (i < cursor->n && key >= cursor->keys[i]) i++;
         cursor = cursor->children[i];
     }
 
-    insert_into_node(cursor, key);
+    // Insert into leaf node (this will also write to the data file)
+    insert_into_leaf(cursor, key, line);
 
+    // Handle node splitting if necessary
     if (cursor->n == tree->T) {
         int promote_key;
         Node *new_leaf = split_leaf_node(cursor, tree->T, &promote_key);
@@ -127,7 +140,7 @@ Node* search(BPT *tree,int key) {
     Node *cursor = tree->root;
     while (!cursor->is_leaf) {
         int i = 0;
-        while (i < cursor->n && key > cursor->keys[i]) i++;
+        while (i < cursor->n && key >= cursor->keys[i]) i++;
         cursor = cursor->children[i];
     }
     int pos = binary_search(cursor->keys, cursor->n, key);
@@ -139,28 +152,66 @@ Node* search(BPT *tree,int key) {
 }
 
 char** ranged_query(BPT *tree, int low_limit, int up_limit, int *low_offset, int *up_offset) {
+    printf("\nDEBUG: Starting range query for keys %d to %d\n", low_limit, up_limit);
+    
     Node *low_limit_node = search(tree, low_limit);
     if (low_limit_node == NULL) {
+        printf("DEBUG: Low limit node not found for key %d\n", low_limit);
         return NULL;
     }
+    printf("DEBUG: Found low limit node with file: %s\n", low_limit_node->file_pointer);
+    printf("DEBUG: Low limit node keys: ");
+    for (int i = 0; i < low_limit_node->n; i++) {
+        printf("%d ", low_limit_node->keys[i]);
+    }
+    printf("\n");
+
     Node *up_limit_node = search(tree, up_limit);
     if (up_limit_node == NULL) {
-        return NULL;   
+        printf("DEBUG: Up limit node not found for key %d\n", up_limit);
+        return NULL;
     }
+    printf("DEBUG: Found up limit node with file: %s\n", up_limit_node->file_pointer);
+    printf("DEBUG: Up limit node keys: ");
+    for (int i = 0; i < up_limit_node->n; i++) {
+        printf("%d ", up_limit_node->keys[i]);
+    }
+    printf("\n");
+
     (*low_offset) = binary_search(low_limit_node->keys, low_limit_node->n, low_limit);
     (*up_offset) = binary_search(up_limit_node->keys, up_limit_node->n, up_limit);
+    printf("DEBUG: Found offsets - low: %d, up: %d\n", *low_offset, *up_offset);
+
     int size = 0, capacity = 50;
     char **result = (char **)malloc(sizeof(char *) * capacity);
     if (result == NULL) {
+        printf("DEBUG: Failed to allocate result array\n");
         memory_allocation_failed();
     }
+
+    printf("DEBUG: Starting to collect file pointers...\n");
+    printf("DEBUG: Adding low limit node file: %s\n", low_limit_node->file_pointer);
     append(result, &size, &capacity, low_limit_node->file_pointer);
+
     Node *cursor = low_limit_node->next;
+    printf("DEBUG: Traversing intermediate nodes...\n");
     while (cursor != up_limit_node) {
+        if (cursor == NULL) {
+            printf("DEBUG: Warning - reached NULL before up_limit_node\n");
+            break;
+        }
+        printf("DEBUG: Adding intermediate node file: %s\n", cursor->file_pointer);
         append(result, &size, &capacity, cursor->file_pointer);
         cursor = cursor->next;
     }
-    append(result, &size, &capacity, up_limit_node->file_pointer);
+
+    if (cursor == up_limit_node) {
+        printf("DEBUG: Adding up limit node file: %s\n", up_limit_node->file_pointer);
+        append(result, &size, &capacity, up_limit_node->file_pointer);
+    }
+
+    printf("DEBUG: Range query completed. Found %d files\n", size);
+    result[size] = NULL;  // Null terminate the array
     return result;
 }
 
@@ -245,6 +296,10 @@ void delete_child(Node *node, int child_index) {
 }
 
 void merge(Node *taker, Node *giver, Node *parent) {
+    if (taker->is_leaf) {
+        dfh_merge_files(taker->file_pointer, giver->file_pointer);
+    }
+    
     for (int i = 0; i < giver->n; i++) {
         insert_into_node(taker, giver->keys[i]);
     }
@@ -259,6 +314,7 @@ void merge(Node *taker, Node *giver, Node *parent) {
     if (taker->is_leaf) {
         taker->next = giver->next;
     }
+    
     int giver_index = index_in_parent(giver);
     delete_child(parent, giver_index);
     if (giver_index > 0) {
@@ -271,15 +327,27 @@ void merge(Node *taker, Node *giver, Node *parent) {
     free(giver);
 }
 
-void borrow_keys(Node *lender, Node *borrower, Node *parent,bool borrow_from_right) {
+void borrow_keys(Node *lender, Node *borrower, Node *parent, bool borrow_from_right) {
     if (borrow_from_right) {
         int key = lender->keys[0];
+        if (lender->is_leaf) {
+            char buffer[MAX_LINE_SIZE];
+            dfh_read_line(lender->file_pointer, key, buffer, MAX_LINE_SIZE);
+            dfh_write_line(borrower->file_pointer, key, buffer);
+            dfh_delete_lines(lender->file_pointer, &key, 1);
+        }
         insert_into_node(borrower, key);
         delete_key(lender, key);
         int borrower_index = index_in_parent(borrower);
         parent->keys[borrower_index] = lender->keys[0];
     } else {
         int key = lender->keys[lender->n - 1];
+        if (lender->is_leaf) {
+            char buffer[MAX_LINE_SIZE];
+            dfh_read_line(lender->file_pointer, key, buffer, MAX_LINE_SIZE);
+            dfh_write_line(borrower->file_pointer, key, buffer);
+            dfh_delete_lines(lender->file_pointer, &key, 1);
+        }
         insert_into_node(borrower, key);
         delete_key(lender, key);
         int lender_index = index_in_parent(lender);
@@ -318,6 +386,11 @@ void delete(BPT *tree, int key) {
     int pos = binary_search(cursor->keys, cursor->n, key);
     if (pos == -1) return;
 
+    // Remove the entry from data file before deleting the key
+    if (cursor->is_leaf) {
+        dfh_delete_lines(cursor->file_pointer, &key, 1);
+    }
+
     if (cursor == tree->root) {
         delete_key(cursor, key);
         return;
@@ -339,15 +412,16 @@ void delete(BPT *tree, int key) {
     Node *right_sibling = cursor_index < parent->n ? parent->children[cursor_index + 1] : NULL;
 
     if (left_sibling && left_sibling->n > min_keys) {
-        borrow_keys(left_sibling, cursor, parent,false);
+        borrow_keys(left_sibling, cursor, parent, false);
     } else if (right_sibling && right_sibling->n > min_keys) {
-        borrow_keys(right_sibling, cursor, parent,true);
+        borrow_keys(right_sibling, cursor, parent, true);
     } else if (left_sibling) {
         merge(left_sibling, cursor, parent);
         cursor = left_sibling;
     } else if (right_sibling) {
         merge(cursor, right_sibling, parent);
     }
+
     if (parent->n == 0 && parent == tree->root) {
         tree->root = parent->children[0];
         tree->root->parent = NULL;

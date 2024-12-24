@@ -16,8 +16,7 @@ typedef struct Node {
 // Node creation and manipulation functions
 Node* create_node(bool is_leaf, int T);
 void insert_into_node(Node *node, int key);
-
-// Helper functions
-
+void insert_into_leaf(Node *node, int key, const char* line);
+char* generate_file_pointer(void);
 
 #endif // NODE_H
