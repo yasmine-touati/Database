@@ -68,7 +68,13 @@ void insert_into_node(Node *node, int key) {
 }
 
 void insert_into_leaf(Node *node, int key, const char* line) {
-    // Insert the key into the node
+    // First write the data to ensure it's stored
+    if (dfh_write_line(node->file_pointer, key, line) != DFH_SUCCESS) {
+        printf("Failed to write data for key %d\n", key);
+        return;
+    }
+
+    // Then insert the key into the node
     int i = node->n - 1;
     while (i >= 0 && node->keys[i] > key) {
         node->keys[i + 1] = node->keys[i];
@@ -76,7 +82,4 @@ void insert_into_leaf(Node *node, int key, const char* line) {
     }
     node->keys[i + 1] = key;
     node->n++;
-
-    // Write the data to the corresponding file
-    dfh_write_line(node->file_pointer, key, line);
 }

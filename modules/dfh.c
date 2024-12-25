@@ -198,35 +198,50 @@ int dfh_verify_file(const char* file_pointer, int* keys, int num_keys) {
     return DFH_SUCCESS;
 }
 
+bool is_file_empty(const char* file_pointer) {
+    char* full_path = get_full_path(file_pointer);
+    if (!full_path) return true;
+    
+    FILE* file = fopen(full_path, "r");
+    if (!file) {
+        free(full_path);
+        return true;
+    }
+    
+    char buffer[MAX_LINE_SIZE];
+    bool is_empty = (fgets(buffer, sizeof(buffer), file) == NULL);
+    
+    fclose(file);
+    free(full_path);
+    return is_empty;
+}
+
 int dfh_delete_lines(const char* file_pointer, int* keys, int num_keys) {
     char* full_path = get_full_path(file_pointer);
     if (!full_path) return DFH_ERROR_OPEN;
     
-    // Create a temporary file
-    char* temp_path = malloc(strlen(full_path) + 5);
-    if (!temp_path) {
+    FILE* original = fopen(full_path, "r");
+    if (!original) {
         free(full_path);
         return DFH_ERROR_OPEN;
     }
-    sprintf(temp_path, "%s.tmp", full_path);
     
-    FILE* original = fopen(full_path, "r");
+    char temp_path[1024];
+    snprintf(temp_path, sizeof(temp_path), "%s.tmp", full_path);
     FILE* temp = fopen(temp_path, "w");
     
-    if (!original || !temp) {
+    if (!temp) {
+        fclose(original);
         free(full_path);
-        free(temp_path);
-        if (original) fclose(original);
-        if (temp) fclose(temp);
         return DFH_ERROR_OPEN;
     }
 
     char line[MAX_LINE_SIZE];
     int current_key;
-    bool should_keep;
+    bool has_content = false;
     
     while (fgets(line, sizeof(line), original)) {
-        should_keep = true;
+        bool should_keep = true;
         sscanf(line, "%d", &current_key);
         
         for (int i = 0; i < num_keys; i++) {
@@ -238,17 +253,23 @@ int dfh_delete_lines(const char* file_pointer, int* keys, int num_keys) {
         
         if (should_keep) {
             fputs(line, temp);
+            has_content = true;
         }
     }
 
     fclose(original);
     fclose(temp);
     
-    // Replace original with temp file
-    remove(full_path);
-    rename(temp_path, full_path);
+    if (!has_content) {
+        // If file is empty after deletions, remove both files
+        remove(full_path);
+        remove(temp_path);
+    } else {
+        // Replace original with temp file
+        remove(full_path);
+        rename(temp_path, full_path);
+    }
     
     free(full_path);
-    free(temp_path);
     return DFH_SUCCESS;
 } 

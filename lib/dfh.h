@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include "node.h"
+#include <stdbool.h>
 
 // File operations status codes
 #define DFH_SUCCESS 0
@@ -27,6 +28,7 @@ int dfh_merge_files(const char* taker_fp, const char* giver_fp);
 int dfh_create_datafile(const char* file_pointer);
 int dfh_verify_file(const char* file_pointer, int* keys, int num_keys);
 int dfh_remove_line(const char* file_pointer, int key);
+bool is_file_empty(const char* file_pointer);
 
 
 #endif // DFH_H

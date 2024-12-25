@@ -561,6 +561,15 @@ void delete(BPT *tree, int key) {
         free(parent);
     }
 
+    // After deleting the key, check if the leaf node's file is empty
+    if (cursor->is_leaf && is_file_empty(cursor->file_pointer)) {
+        char* full_path = get_full_path(cursor->file_pointer);
+        if (full_path) {
+            remove(full_path);
+            free(full_path);
+        }
+    }
+
     // Save tree state after deletion
     save_tree_to_json(tree, "index.json");
 }
@@ -574,13 +583,14 @@ void free_node(Node* node) {
                 free_node(node->children[i]);
             }
         }
-    } else {
-        if (node->file_pointer) {
-            char* full_path = get_full_path(node->file_pointer);
+    } else if (node->file_pointer) {
+        // Always try to remove the file when freeing a leaf node
+        char* full_path = get_full_path(node->file_pointer);
+        if (full_path) {
             remove(full_path);
             free(full_path);
-            free(node->file_pointer);
         }
+        free(node->file_pointer);
     }
     
     free(node->keys);
