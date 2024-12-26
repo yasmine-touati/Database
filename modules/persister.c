@@ -5,6 +5,7 @@
 #include "../lib/bpt.h"
 #include "../lib/node.h"
 #include "../lib/dfh.h"
+#include "../lib/application.h"
 
 cJSON* node_to_json(Node* node) {
     if (!node) return NULL;
@@ -67,7 +68,7 @@ cJSON* node_to_json(Node* node) {
     return json_node;
 }
 
-Node* json_to_node(cJSON* json, Node* parent) {
+Node* json_to_node(const char* dataset_name, cJSON* json, Node* parent) {
     if (!json) return NULL;
     
     cJSON* is_leaf_item = cJSON_GetObjectItem(json, "is_leaf");
@@ -78,7 +79,7 @@ Node* json_to_node(cJSON* json, Node* parent) {
     int n = n_item->valueint;
     
     // Create node
-    Node* node = create_node(is_leaf, n + 1);
+    Node* node = create_node(dataset_name, is_leaf, n + 1);
     if (!node) return NULL;
     
     node->n = n;
@@ -87,14 +88,14 @@ Node* json_to_node(cJSON* json, Node* parent) {
     // Get keys
     cJSON* keys = cJSON_GetObjectItem(json, "keys");
     if (!keys) {
-        free_node(node);
+        free_node(node,dataset_name);
         return NULL;
     }
     
     for (int i = 0; i < n; i++) {
         cJSON* key_item = cJSON_GetArrayItem(keys, i);
         if (!key_item) {
-            free_node(node);
+            free_node(node,dataset_name);
             return NULL;
         }
         node->keys[i] = key_item->valueint;
@@ -106,7 +107,7 @@ Node* json_to_node(cJSON* json, Node* parent) {
         if (file_pointer && file_pointer->valuestring) {
             node->file_pointer = strdup(file_pointer->valuestring);
             if (!node->file_pointer) {
-                free_node(node);
+                free_node(node, dataset_name);
                 return NULL;
             }
         }
@@ -116,14 +117,14 @@ Node* json_to_node(cJSON* json, Node* parent) {
     if (!is_leaf) {
         cJSON* children = cJSON_GetObjectItem(json, "children");
         if (!children) {
-            free_node(node);
+            free_node(node, dataset_name);
             return NULL;
         }
         
         for (int i = 0; i <= n; i++) {
-            node->children[i] = json_to_node(cJSON_GetArrayItem(children, i), node);
+            node->children[i] = json_to_node(dataset_name, cJSON_GetArrayItem(children, i), node);
             if (!node->children[i]) {
-                free_node(node);
+                free_node(node, dataset_name);
                 return NULL;
             }
         }
@@ -132,55 +133,47 @@ Node* json_to_node(cJSON* json, Node* parent) {
     return node;
 }
 
-int save_tree_to_json(BPT* tree, const char* filename) {
-    if (!tree || !tree->root || !filename) {
-        return -1;
-    }
+int save_tree_to_json(BPT* tree) {
+    if (!tree || !tree->dataset_name) return -1;
     
     cJSON* json_tree = cJSON_CreateObject();
-    if (!json_tree) {
-        return -1;
-    }
+    if (!json_tree) return -1;
     
-    if (!cJSON_AddNumberToObject(json_tree, "T", tree->T)) {
+    cJSON_AddNumberToObject(json_tree, "T", tree->T);
+    cJSON* json_root = node_to_json(tree->root);
+    if (!json_root) {
         cJSON_Delete(json_tree);
         return -1;
     }
-    
-    cJSON* root_json = node_to_json(tree->root);
-    if (!root_json) {
-        cJSON_Delete(json_tree);
-        return -1;
-    }
-    cJSON_AddItemToObject(json_tree, "root", root_json);
+    cJSON_AddItemToObject(json_tree, "root", json_root);
     
     char* json_str = cJSON_Print(json_tree);
-    if (!json_str) {
-        cJSON_Delete(json_tree);
-        return -1;
-    }
+    cJSON_Delete(json_tree);
+    if (!json_str) return -1;
     
-    FILE* file = fopen(filename, "wb");
+    // Get dataset-specific index.json path
+    char index_path[MAX_PATH_LENGTH];
+    snprintf(index_path, MAX_PATH_LENGTH, "%s/index.json", tree->dataset_name);
+    
+    FILE* file = fopen(index_path, "w");
     if (!file) {
         free(json_str);
-        cJSON_Delete(json_tree);
         return -1;
     }
     
-    size_t len = strlen(json_str);
-    size_t written = fwrite(json_str, 1, len, file);
+    fprintf(file, "%s", json_str);
     fclose(file);
-    
     free(json_str);
-    cJSON_Delete(json_tree);
     
-    return (written == len) ? 0 : -1;
+    return 0;
 }
 
-BPT* load_tree_from_json(const char* filename) {
-    if (!filename) return NULL;
+BPT* load_tree_from_json(const char* dataset_name) {
+    // Get dataset-specific index.json path
+    char index_path[MAX_PATH_LENGTH];
+    snprintf(index_path, MAX_PATH_LENGTH, "%s/index.json", dataset_name);
     
-    FILE* file = fopen(filename, "rb");
+    FILE* file = fopen(index_path, "r");
     if (!file) return NULL;
     
     if (fseek(file, 0, SEEK_END) != 0) {
@@ -226,7 +219,7 @@ BPT* load_tree_from_json(const char* filename) {
         return NULL;
     }
     
-    BPT* tree = create_BPT(T_item->valueint);
+    BPT* tree = create_BPT(dataset_name, T_item->valueint);
     if (!tree) {
         cJSON_Delete(json_tree);
         return NULL;
@@ -239,7 +232,7 @@ BPT* load_tree_from_json(const char* filename) {
         return NULL;
     }
     
-    tree->root = json_to_node(json_root, NULL);
+    tree->root = json_to_node(dataset_name, json_root, NULL);
     if (!tree->root) {
         cJSON_Delete(json_tree);
         free(tree);

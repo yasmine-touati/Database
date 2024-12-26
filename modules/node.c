@@ -27,7 +27,7 @@ char* generate_file_pointer() {
     return file_pointer;
 }
 
-Node* create_node(bool is_leaf, int T) {
+Node* create_node(const char* dataset_name, bool is_leaf, int T) {
     Node *node = (Node *)malloc(sizeof(Node));
     if (node == NULL) {
        memory_allocation_failed();
@@ -49,7 +49,7 @@ Node* create_node(bool is_leaf, int T) {
     node->next = NULL;
     if (is_leaf) {
         node->file_pointer = generate_file_pointer();
-        dfh_create_datafile(node->file_pointer);
+        dfh_create_datafile(dataset_name, node->file_pointer);
     } else {
         node->file_pointer = NULL;
     }
@@ -67,9 +67,9 @@ void insert_into_node(Node *node, int key) {
     node->n++;
 }
 
-void insert_into_leaf(Node *node, int key, const char* line) {
+void insert_into_leaf(const char* dataset_name, Node *node, int key, const char* line) {
     // First write the data to ensure it's stored
-    if (dfh_write_line(node->file_pointer, key, line) != DFH_SUCCESS) {
+    if (dfh_write_line(dataset_name, node->file_pointer, key, line) != DFH_SUCCESS) {
         printf("Failed to write data for key %d\n", key);
         return;
     }

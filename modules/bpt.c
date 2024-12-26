@@ -10,14 +10,17 @@
 
 // BPT CREATION 
 
-BPT* create_BPT(int T) {
+
+
+BPT* create_BPT(const char* dataset_name, int T) {
     BPT *bpt = (BPT *)malloc(sizeof(BPT));
     if (bpt == NULL) {
         memory_allocation_failed();
     }
 
-    bpt->root = create_node(true, T);
+    bpt->root = create_node(dataset_name, true, T);
     bpt->T = T;
+    bpt->dataset_name = strdup(dataset_name);
 
     return bpt;
 }
@@ -30,9 +33,10 @@ BPT* create_BPT(int T) {
 
 
 
-Node* split_leaf_node(Node *node, int T, int *promote_key) {
-    int mid = node->n / 2;
-    Node *new_leaf = create_node(true, T);
+Node* split_leaf_node(BPT* tree, Node *node, int T, int *promote_key) {
+    int mid = (T - 1) / 2;
+    Node *new_leaf = create_node(tree->dataset_name, true, T);
+    if (!new_leaf) return NULL;
 
     for (int i = mid; i < node->n; i++) {
         new_leaf->keys[i - mid] = node->keys[i];
@@ -42,7 +46,14 @@ Node* split_leaf_node(Node *node, int T, int *promote_key) {
     for (int i = 0; i < node->n - mid; i++) {
         keys_to_move[i] = new_leaf->keys[i];
     }
-    dfh_move_lines(node->file_pointer, new_leaf->file_pointer, keys_to_move, node->n - mid);
+    
+    if (dfh_move_lines(tree->dataset_name, node->file_pointer, new_leaf->file_pointer, 
+                       keys_to_move, node->n - mid) != DFH_SUCCESS) {
+        free(keys_to_move);
+        free_node(new_leaf, tree->dataset_name);
+        return NULL;
+    }
+    
     free(keys_to_move);
 
     new_leaf->n = node->n - mid;
@@ -55,9 +66,9 @@ Node* split_leaf_node(Node *node, int T, int *promote_key) {
     return new_leaf;
 }
 
-Node* split_internal_node(Node *node, int T, int *promote_key) {
+Node* split_internal_node(const char* dataset_name, Node *node, int T, int *promote_key) {
     int mid = node->n / 2;
-    Node *new_node = create_node(false, T);
+    Node *new_node = create_node(dataset_name, false, T);
 
     for (int i = mid + 1; i < node->n; i++) {
         new_node->keys[i - mid - 1] = node->keys[i];
@@ -82,7 +93,7 @@ void propagate_up(BPT *tree, Node *child, Node *sibling, int promote_key) {
     Node *parent = child->parent;
 
     if (!parent) {
-        Node *new_root = create_node(false, tree->T);
+        Node *new_root = create_node(tree->dataset_name, false, tree->T);
         new_root->keys[0] = promote_key;
         new_root->children[0] = child;
         new_root->children[1] = sibling;
@@ -103,7 +114,7 @@ void propagate_up(BPT *tree, Node *child, Node *sibling, int promote_key) {
 
         if (parent->n == tree->T) {
             int new_promote_key;
-            Node *new_sibling = split_internal_node(parent, tree->T, &new_promote_key);
+            Node *new_sibling = split_internal_node(tree->dataset_name, parent, tree->T, &new_promote_key);
             propagate_up(tree, parent, new_sibling, new_promote_key);
         }
     }
@@ -118,19 +129,19 @@ void insert(BPT *tree, int key, const char* line) {
         while (i < cursor->n && key >= cursor->keys[i]) i++;
         cursor = cursor->children[i];
     }
+    insert_into_leaf(tree->dataset_name, cursor, key, line);
 
-    // Insert into leaf node (this will also write to the data file)
-    insert_into_leaf(cursor, key, line);
+    
 
     // Handle node splitting if necessary
     if (cursor->n == tree->T) {
         int promote_key;
-        Node *new_leaf = split_leaf_node(cursor, tree->T, &promote_key);
+        Node *new_leaf = split_leaf_node(tree, cursor, tree->T, &promote_key);
         propagate_up(tree, cursor, new_leaf, promote_key);
     }
 
     // Save tree state after insertion
-    save_tree_to_json(tree, "index.json");
+    save_tree_to_json(tree);
 }
 
 // ---------------------------------------------------------
@@ -275,25 +286,25 @@ void delete_child(Node *node, int child_index) {
     node->children[node->n] = NULL;
 }
 
-void merge(Node *taker, Node *giver, Node *parent) {
+void merge(Node *taker, Node *giver, Node *parent, const char* dataset_name) {
    
     
     if (taker->is_leaf) {
         char* new_file = generate_file_pointer();
-        dfh_create_datafile(new_file);
+        dfh_create_datafile(dataset_name, new_file);
         
         // Copy all entries from taker
         for (int i = 0; i < taker->n; i++) {
             char buffer[MAX_LINE_SIZE];
-            dfh_read_line(taker->file_pointer, taker->keys[i], buffer, MAX_LINE_SIZE);
-            dfh_write_line(new_file, taker->keys[i], buffer);
+            dfh_read_line( dataset_name, taker->file_pointer, taker->keys[i], buffer, MAX_LINE_SIZE);
+            dfh_write_line( dataset_name, new_file, taker->keys[i], buffer);
         }
         
         // Copy all entries from giver
         for (int i = 0; i < giver->n; i++) {
             char buffer[MAX_LINE_SIZE];
-            dfh_read_line(giver->file_pointer, giver->keys[i], buffer, MAX_LINE_SIZE);
-            dfh_write_line(new_file, giver->keys[i], buffer);
+            dfh_read_line( dataset_name, giver->file_pointer, giver->keys[i], buffer, MAX_LINE_SIZE);
+            dfh_write_line( dataset_name, new_file, giver->keys[i], buffer);
         }
         
         // Delete old files
@@ -301,11 +312,11 @@ void merge(Node *taker, Node *giver, Node *parent) {
         char* old_giver = giver->file_pointer;
         taker->file_pointer = new_file;
         
-        char* full_path = get_full_path(old_taker);
+        char* full_path = get_full_path(dataset_name, old_taker);
         remove(full_path);
         free(full_path);
         
-        full_path = get_full_path(old_giver);
+        full_path = get_full_path(dataset_name, old_giver);
         remove(full_path);
         free(full_path);
     }
@@ -337,12 +348,12 @@ void merge(Node *taker, Node *giver, Node *parent) {
     free(giver);
 }
 
-void borrow_keys(Node *lender, Node *borrower, Node *parent, bool borrow_from_right) {
+void borrow_keys(Node *lender, Node *borrower, Node *parent, bool borrow_from_right, const char* dataset_name) {
    
    
     // Create a new data file for the merged result
     char* new_file = generate_file_pointer();
-    dfh_create_datafile(new_file);
+    dfh_create_datafile(dataset_name, new_file);
     
     if (borrow_from_right) {
         int key = lender->keys[0];
@@ -351,27 +362,27 @@ void borrow_keys(Node *lender, Node *borrower, Node *parent, bool borrow_from_ri
             // Copy all borrower's current entries to new file
             for (int i = 0; i < borrower->n; i++) {
                 char buffer[MAX_LINE_SIZE];
-                dfh_read_line(borrower->file_pointer, borrower->keys[i], buffer, MAX_LINE_SIZE);
-                dfh_write_line(new_file, borrower->keys[i], buffer);
+                dfh_read_line(dataset_name, borrower->file_pointer, borrower->keys[i], buffer, MAX_LINE_SIZE);
+                dfh_write_line(dataset_name, new_file, borrower->keys[i], buffer);
                
             }
             
             // Copy the borrowed key
             char buffer[MAX_LINE_SIZE];
-            dfh_read_line(lender->file_pointer, key, buffer, MAX_LINE_SIZE);
-            dfh_write_line(new_file, key, buffer);
+            dfh_read_line(dataset_name, lender->file_pointer, key, buffer, MAX_LINE_SIZE);
+            dfh_write_line(dataset_name, new_file, key, buffer);
          
             
             // Delete old borrower file
             char* old_borrower = borrower->file_pointer;
             borrower->file_pointer = new_file;
             
-            char* full_path = get_full_path(old_borrower);
+            char* full_path = get_full_path(dataset_name, old_borrower);
             remove(full_path);
             free(full_path);
             
             // Update lender's file
-            dfh_delete_lines(lender->file_pointer, &key, 1);
+            dfh_delete_lines(dataset_name, lender->file_pointer, &key, 1);
         }
         
         insert_into_node(borrower, key);
@@ -384,25 +395,25 @@ void borrow_keys(Node *lender, Node *borrower, Node *parent, bool borrow_from_ri
             // Copy all borrower's current entries to new file
             for (int i = 0; i < borrower->n; i++) {
                 char buffer[MAX_LINE_SIZE];
-                dfh_read_line(borrower->file_pointer, borrower->keys[i], buffer, MAX_LINE_SIZE);
-                dfh_write_line(new_file, borrower->keys[i], buffer);
+                dfh_read_line(dataset_name, borrower->file_pointer, borrower->keys[i], buffer, MAX_LINE_SIZE);
+                dfh_write_line( dataset_name, new_file, borrower->keys[i], buffer);
             }
             
             // Copy the borrowed key
             char buffer[MAX_LINE_SIZE];
-            dfh_read_line(lender->file_pointer, key, buffer, MAX_LINE_SIZE);
-            dfh_write_line(new_file, key, buffer);
+            dfh_read_line(dataset_name, lender->file_pointer, key, buffer, MAX_LINE_SIZE);
+            dfh_write_line(dataset_name, new_file, key, buffer);
             
             // Delete old borrower file
             char* old_borrower = borrower->file_pointer;
             borrower->file_pointer = new_file;
             
-            char* full_path = get_full_path(old_borrower);
+            char* full_path = get_full_path(dataset_name, old_borrower);
             remove(full_path);
             free(full_path);
             
             // Update lender's file
-            dfh_delete_lines(lender->file_pointer, &key, 1);
+            dfh_delete_lines(dataset_name, lender->file_pointer, &key, 1);
         }
         
         insert_into_node(borrower, key);
@@ -432,7 +443,7 @@ bool can_lend(Node *node, int T) {
     return false;
 }
 
-void delete(BPT *tree, int key) {
+int delete(BPT *tree, int key) {
     Node *cursor = tree->root;
     while (!cursor->is_leaf) {
         int i = 0;
@@ -441,17 +452,17 @@ void delete(BPT *tree, int key) {
     }
 
     int pos = binary_search(cursor->keys, cursor->n, key);
-    if (pos == -1) return;
+    if (pos == -1) return -1;
 
     // Remove the entry from data file before deleting the key
     if (cursor->is_leaf) {
-        dfh_delete_lines(cursor->file_pointer, &key, 1);
+        dfh_delete_lines( tree->dataset_name, cursor->file_pointer, &key, 1);
     }
 
     if (cursor == tree->root) {
         delete_key(cursor, key);
-        save_tree_to_json(tree, "index.json");
-        return;
+        save_tree_to_json(tree);
+        return 0;
     }
 
     delete_key(cursor, key);
@@ -461,8 +472,8 @@ void delete(BPT *tree, int key) {
         if (pos == 0) {
             propagate_up_deletion(cursor->parent, key, cursor->keys[0]);
         }
-        save_tree_to_json(tree, "index.json");
-        return;
+        save_tree_to_json(tree);
+        return 0;
     }
 
     Node *parent = cursor->parent;
@@ -472,26 +483,26 @@ void delete(BPT *tree, int key) {
 
     // Try to borrow or merge
     if (left_sibling && left_sibling->n > min_keys) {
-        borrow_keys(left_sibling, cursor, parent, false);
+        borrow_keys(left_sibling, cursor, parent, false, tree->dataset_name);
     } else if (right_sibling && right_sibling->n > min_keys) {
-        borrow_keys(right_sibling, cursor, parent, true);
+        borrow_keys(right_sibling, cursor, parent, true, tree->dataset_name);
     } else if (left_sibling) {
         // Merge with left sibling
         char* merged_file = generate_file_pointer();
-        dfh_create_datafile(merged_file);
+        dfh_create_datafile( tree->dataset_name, merged_file);
         
         // Copy all entries from left sibling to new file
         for (int i = 0; i < left_sibling->n; i++) {
             char buffer[MAX_LINE_SIZE];
-            dfh_read_line(left_sibling->file_pointer, left_sibling->keys[i], buffer, MAX_LINE_SIZE);
-            dfh_write_line(merged_file, left_sibling->keys[i], buffer);
+            dfh_read_line( tree->dataset_name, left_sibling->file_pointer, left_sibling->keys[i], buffer, MAX_LINE_SIZE);
+            dfh_write_line( tree->dataset_name, merged_file, left_sibling->keys[i], buffer);
         }
         
         // Copy all entries from current node to new file
         for (int i = 0; i < cursor->n; i++) {
             char buffer[MAX_LINE_SIZE];
-            dfh_read_line(cursor->file_pointer, cursor->keys[i], buffer, MAX_LINE_SIZE);
-            dfh_write_line(merged_file, cursor->keys[i], buffer);
+            dfh_read_line( tree->dataset_name, cursor->file_pointer, cursor->keys[i], buffer, MAX_LINE_SIZE);
+            dfh_write_line( tree->dataset_name, merged_file, cursor->keys[i], buffer);
         }
         
         // Delete old files
@@ -502,14 +513,14 @@ void delete(BPT *tree, int key) {
         left_sibling->file_pointer = merged_file;
         
         // Merge nodes in tree
-        merge(left_sibling, cursor, parent);
+        merge(left_sibling, cursor, parent, tree->dataset_name);
         
         // Remove old data files
-        char* full_path = get_full_path(old_left);
+        char* full_path = get_full_path( tree->dataset_name, old_left);
         remove(full_path);
         free(full_path);
         
-        full_path = get_full_path(old_cursor);
+        full_path = get_full_path( tree->dataset_name, old_cursor);
         remove(full_path);
         free(full_path);
         
@@ -517,20 +528,20 @@ void delete(BPT *tree, int key) {
     } else if (right_sibling) {
         // Merge with right sibling
         char* merged_file = generate_file_pointer();
-        dfh_create_datafile(merged_file);
+        dfh_create_datafile( tree->dataset_name, merged_file);
         
         // Copy all entries from current node to new file
         for (int i = 0; i < cursor->n; i++) {
             char buffer[MAX_LINE_SIZE];
-            dfh_read_line(cursor->file_pointer, cursor->keys[i], buffer, MAX_LINE_SIZE);
-            dfh_write_line(merged_file, cursor->keys[i], buffer);
+            dfh_read_line( tree->dataset_name, cursor->file_pointer, cursor->keys[i], buffer, MAX_LINE_SIZE);
+            dfh_write_line( tree->dataset_name, merged_file, cursor->keys[i], buffer);
         }
         
         // Copy all entries from right sibling to new file
         for (int i = 0; i < right_sibling->n; i++) {
             char buffer[MAX_LINE_SIZE];
-            dfh_read_line(right_sibling->file_pointer, right_sibling->keys[i], buffer, MAX_LINE_SIZE);
-            dfh_write_line(merged_file, right_sibling->keys[i], buffer);
+            dfh_read_line( tree->dataset_name, right_sibling->file_pointer, right_sibling->keys[i], buffer, MAX_LINE_SIZE);
+            dfh_write_line( tree->dataset_name, merged_file, right_sibling->keys[i], buffer);
         }
         
         // Delete old files
@@ -541,14 +552,14 @@ void delete(BPT *tree, int key) {
         cursor->file_pointer = merged_file;
         
         // Merge nodes in tree
-        merge(cursor, right_sibling, parent);
+        merge(cursor, right_sibling, parent, tree->dataset_name);
         
         // Remove old data files
-        char* full_path = get_full_path(old_cursor);
+        char* full_path = get_full_path( tree->dataset_name, old_cursor);
         remove(full_path);
         free(full_path);
         
-        full_path = get_full_path(old_right);
+        full_path = get_full_path( tree->dataset_name, old_right);
         remove(full_path);
         free(full_path);
     }
@@ -562,8 +573,8 @@ void delete(BPT *tree, int key) {
     }
 
     // After deleting the key, check if the leaf node's file is empty
-    if (cursor->is_leaf && is_file_empty(cursor->file_pointer)) {
-        char* full_path = get_full_path(cursor->file_pointer);
+    if (cursor->is_leaf && is_file_empty( tree->dataset_name, cursor->file_pointer)) {
+        char* full_path = get_full_path( tree->dataset_name, cursor->file_pointer);
         if (full_path) {
             remove(full_path);
             free(full_path);
@@ -571,21 +582,22 @@ void delete(BPT *tree, int key) {
     }
 
     // Save tree state after deletion
-    save_tree_to_json(tree, "index.json");
+    save_tree_to_json(tree);
+    return 0;
 }
 
-void free_node(Node* node) {
+void free_node(Node *node, const char *dataset_name) {
     if (!node) return;
     
     if (!node->is_leaf) {
         for (int i = 0; i <= node->n; i++) {
             if (node->children[i]) {
-                free_node(node->children[i]);
+                free_node(node->children[i], dataset_name);
             }
         }
     } else if (node->file_pointer) {
         // Always try to remove the file when freeing a leaf node
-        char* full_path = get_full_path(node->file_pointer);
+        char* full_path = get_full_path(dataset_name, node->file_pointer);
         if (full_path) {
             remove(full_path);
             free(full_path);
@@ -598,11 +610,30 @@ void free_node(Node* node) {
     free(node);
 }
 
-void free_tree(BPT* tree) {
+void free_node_and_not_file(Node *node) {
+    if (!node) return;
+    
+    if (!node->is_leaf) {
+        for (int i = 0; i <= node->n; i++) {
+            if (node->children[i]) {
+                free_node_and_not_file(node->children[i]);
+            }
+        }
+    } else if (node->file_pointer) {
+        free(node->file_pointer);
+    }
+    
+    free(node->keys);
+    free(node->children);
+    free(node);
+}
+
+void free_tree(BPT *tree) {
     if (!tree) return;
     if (tree->root) {
-        free_node(tree->root);
+        free_node_and_not_file(tree->root);
     }
+    free(tree->dataset_name);
     free(tree);
 }
 

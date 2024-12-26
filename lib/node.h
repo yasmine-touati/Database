@@ -4,19 +4,18 @@
 #include <stdbool.h>
 
 typedef struct Node {
-    int *keys;              // Array of keys
-    struct Node **children; // Array of child pointers
-    struct Node *parent;    // Pointer to parent node
-    struct Node *next;      // Pointer to next leaf node (for leaf nodes only)
-    char *file_pointer;     // Pointer to file location (for leaf nodes)
-    int n;                  // Current number of keys
-    bool is_leaf;          // Whether this node is a leaf
+    int *keys;
+    struct Node **children;
+    struct Node *parent;
+    struct Node *next;
+    char *file_pointer;
+    int n;
+    bool is_leaf;
 } Node;
 
-// Node creation and manipulation functions
-Node* create_node(bool is_leaf, int T);
+Node* create_node(const char* dataset_name, bool is_leaf, int T);
 void insert_into_node(Node *node, int key);
-void insert_into_leaf(Node *node, int key, const char* line);
+void insert_into_leaf(const char* dataset_name, Node *node, int key, const char* line);
 char* generate_file_pointer(void);
 
-#endif // NODE_H
+#endif
