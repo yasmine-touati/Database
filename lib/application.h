@@ -21,6 +21,7 @@
 
 // Add dataset path helpers
 #define MAX_PATH_LENGTH 256
+#define MAX_REQUEST_SIZE 65536  // Increase to 64KB
 
 // Helper function declarations
 

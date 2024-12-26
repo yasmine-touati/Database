@@ -9,20 +9,21 @@
 static int seed_initialized = 0;
 
 char* generate_file_pointer() {
-    if (!seed_initialized) {
-        srand((unsigned int)time(NULL));
-        seed_initialized = 1;
-    }
+    // Use both time and clock for better randomization
+    static unsigned int counter = 0;
+    srand((unsigned int)time(NULL) + clock() + (counter++));
     
     char *file_pointer = (char *)malloc(33 * sizeof(char)); 
     if (file_pointer == NULL) {
         memory_allocation_failed();
     }
 
+    // Mix different character types for better uniqueness
+    const char charset[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
     for (int i = 0; i < 32; i++) {
-        file_pointer[i] = '0' + (rand() % 10); 
+        file_pointer[i] = charset[rand() % (sizeof(charset) - 1)];
     }
-    file_pointer[32] = '\0'; 
+    file_pointer[32] = '\0';
 
     return file_pointer;
 }

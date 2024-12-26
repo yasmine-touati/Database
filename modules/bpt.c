@@ -50,7 +50,7 @@ Node* split_leaf_node(BPT* tree, Node *node, int T, int *promote_key) {
     if (dfh_move_lines(tree->dataset_name, node->file_pointer, new_leaf->file_pointer, 
                        keys_to_move, node->n - mid) != DFH_SUCCESS) {
         free(keys_to_move);
-        free_node(new_leaf, tree->dataset_name);
+        free_node_and_not_file(new_leaf);
         return NULL;
     }
     

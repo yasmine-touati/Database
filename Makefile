@@ -12,6 +12,11 @@ SRCS = $(wildcard $(SRC_DIR)/*.c) $(wildcard $(MODULES_DIR)/*.c)
 OBJS = $(SRCS:%.c=$(BUILD_DIR)/%.o)
 EXECUTABLE = database
 
+# Add Windows Socket library
+ifeq ($(OS),Windows_NT)
+    LIBS += -lws2_32
+endif
+
 .PHONY: all clean directories
 
 all: directories $(EXECUTABLE)
@@ -23,7 +28,7 @@ directories:
 	@if not exist "data" mkdir "data"
 
 $(EXECUTABLE): $(OBJS)
-	$(CC) $(OBJS) -o $@
+	$(CC) $(OBJS) -o $@ $(LIBS)
 
 $(BUILD_DIR)/%.o: %.c
 	@if not exist "$(@D)" mkdir "$(@D)"
