@@ -19,23 +19,20 @@
     #define RMDIR(dir) rmdir(dir)
 #endif
 
-// Add dataset path helpers
 #define MAX_PATH_LENGTH 256
 #define MAX_REQUEST_SIZE 65536  // Increase to 64KB
 
-// Helper function declarations
 
-
-// Main operations
 BPT* create_dataset(const char* name, int T);
 void delete_dataset(const char* name);
 
-// Bulk insert operation
+
 int bulk_insert(BPT* tree, const cJSON* entries);
 
-// Data operations
-cJSON* search_key(BPT* tree, int key);  // New search operation
-cJSON* range_query_dataset(BPT* tree, int start_key, int end_key);  // New function
-int delete_from_dataset(BPT* tree, int key);  // New delete operation
 
-#endif // APPLICATION_H
+cJSON* search_key(BPT* tree, int key);  
+cJSON* range_query_dataset(BPT* tree, int start_key, int end_key);  
+int delete_from_dataset(BPT* tree, int key);  
+void log_request(const char* dataset_name, const char* raw_request, const char* client_ip, int client_port);
+
+#endif 

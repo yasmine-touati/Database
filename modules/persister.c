@@ -13,14 +13,12 @@ cJSON* node_to_json(Node* node) {
     cJSON* json_node = cJSON_CreateObject();
     if (!json_node) return NULL;
     
-    // Add node properties
     if (!cJSON_AddBoolToObject(json_node, "is_leaf", node->is_leaf) ||
         !cJSON_AddNumberToObject(json_node, "n", node->n)) {
         cJSON_Delete(json_node);
         return NULL;
     }
     
-    // Add keys array
     cJSON* keys_array = cJSON_CreateArray();
     if (!keys_array) {
         cJSON_Delete(json_node);
@@ -37,7 +35,7 @@ cJSON* node_to_json(Node* node) {
     }
     cJSON_AddItemToObject(json_node, "keys", keys_array);
     
-    // Add file_pointer for leaf nodes
+    
     if (node->is_leaf) {
         if (!cJSON_AddStringToObject(json_node, "file_pointer", 
             node->file_pointer ? node->file_pointer : "")) {
@@ -45,8 +43,6 @@ cJSON* node_to_json(Node* node) {
             return NULL;
         }
     }
-    
-    // Add children recursively
     if (!node->is_leaf) {
         cJSON* children_array = cJSON_CreateArray();
         if (!children_array) {
@@ -78,14 +74,12 @@ Node* json_to_node(const char* dataset_name, cJSON* json, Node* parent) {
     bool is_leaf = is_leaf_item->valueint;
     int n = n_item->valueint;
     
-    // Create node
     Node* node = create_node(dataset_name, is_leaf, n + 1);
     if (!node) return NULL;
     
     node->n = n;
     node->parent = parent;
     
-    // Get keys
     cJSON* keys = cJSON_GetObjectItem(json, "keys");
     if (!keys) {
         free_node(node,dataset_name);
@@ -101,7 +95,6 @@ Node* json_to_node(const char* dataset_name, cJSON* json, Node* parent) {
         node->keys[i] = key_item->valueint;
     }
     
-    // Get file_pointer for leaf nodes
     if (is_leaf) {
         cJSON* file_pointer = cJSON_GetObjectItem(json, "file_pointer");
         if (file_pointer && file_pointer->valuestring) {
@@ -112,8 +105,6 @@ Node* json_to_node(const char* dataset_name, cJSON* json, Node* parent) {
             }
         }
     }
-    
-    // Get children recursively
     if (!is_leaf) {
         cJSON* children = cJSON_GetObjectItem(json, "children");
         if (!children) {
@@ -151,7 +142,6 @@ int save_tree_to_json(BPT* tree) {
     cJSON_Delete(json_tree);
     if (!json_str) return -1;
     
-    // Get dataset-specific index.json path
     char index_path[MAX_PATH_LENGTH];
     snprintf(index_path, MAX_PATH_LENGTH, "%s/index.json", tree->dataset_name);
     
@@ -169,7 +159,6 @@ int save_tree_to_json(BPT* tree) {
 }
 
 BPT* load_tree_from_json(const char* dataset_name) {
-    // Get dataset-specific index.json path
     char index_path[MAX_PATH_LENGTH];
     snprintf(index_path, MAX_PATH_LENGTH, "%s/index.json", dataset_name);
     
@@ -239,7 +228,6 @@ BPT* load_tree_from_json(const char* dataset_name) {
         return NULL;
     }
     
-    // Reconstruct leaf node links
     Node* cursor = tree->root;
     Node* prev = NULL;
     

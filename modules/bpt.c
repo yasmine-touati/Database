@@ -98,7 +98,8 @@ void propagate_up(BPT *tree, Node *child, Node *sibling, int promote_key) {
         new_root->children[0] = child;
         new_root->children[1] = sibling;
         new_root->n = 1;
-        child->parent = sibling->parent = new_root;
+        child->parent = new_root;
+        sibling->parent = new_root;
         tree->root = new_root;
     } else {
         int i = parent->n - 1;

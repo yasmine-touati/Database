@@ -9,7 +9,6 @@
 static int seed_initialized = 0;
 
 char* generate_file_pointer() {
-    // Use both time and clock for better randomization
     static unsigned int counter = 0;
     srand((unsigned int)time(NULL) + clock() + (counter++));
     
@@ -18,7 +17,6 @@ char* generate_file_pointer() {
         memory_allocation_failed();
     }
 
-    // Mix different character types for better uniqueness
     const char charset[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
     for (int i = 0; i < 32; i++) {
         file_pointer[i] = charset[rand() % (sizeof(charset) - 1)];
@@ -69,13 +67,10 @@ void insert_into_node(Node *node, int key) {
 }
 
 void insert_into_leaf(const char* dataset_name, Node *node, int key, const char* line) {
-    // First write the data to ensure it's stored
     if (dfh_write_line(dataset_name, node->file_pointer, key, line) != DFH_SUCCESS) {
         printf("Failed to write data for key %d\n", key);
         return;
     }
-
-    // Then insert the key into the node
     int i = node->n - 1;
     while (i >= 0 && node->keys[i] > key) {
         node->keys[i + 1] = node->keys[i];

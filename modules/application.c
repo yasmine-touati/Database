@@ -5,9 +5,9 @@
 #include "../lib/utils.h"
 #include <dirent.h>
 #include <errno.h>
+#include <time.h>
 
 BPT* create_dataset(const char* name, int T) {
-    // Create main directory
     if (MKDIR(name) != 0) {
         printf("Error: Could not create directory %s\n", name);
         return NULL;
@@ -18,6 +18,25 @@ BPT* create_dataset(const char* name, int T) {
     if (MKDIR(data_path) != 0) {
         printf("Error: Could not create data directory %s\n", data_path);
         return NULL;
+    }
+
+    // Create logs file
+    char log_path[MAX_PATH_LENGTH];
+    snprintf(log_path, sizeof(log_path), "%s/logs.txt", name);
+    FILE* log_file = fopen(log_path, "w");
+    if (log_file) {
+        time_t now;
+        struct tm* timeinfo;
+        char timestamp[26];
+        
+        time(&now);
+        timeinfo = localtime(&now);
+        strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", timeinfo);
+        
+        fprintf(log_file, "=== Dataset Created: %s ===\n", timestamp);
+        fprintf(log_file, "Order (T): %d\n", T);
+        fprintf(log_file, "=====================================\n");
+        fclose(log_file);
     }
 
     BPT* tree = create_BPT(name, T);
@@ -34,12 +53,10 @@ void delete_dataset(const char* name) {
     char data_path[MAX_PATH_LENGTH];
     snprintf(data_path, sizeof(data_path), "%s/data", name);
     
-    // First, delete all files in the data directory
     DIR* dir = opendir(data_path);
     if (dir) {
         struct dirent* entry;
         while ((entry = readdir(dir)) != NULL) {
-            // Skip . and .. directories
             if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
                 continue;
             }
@@ -47,7 +64,6 @@ void delete_dataset(const char* name) {
             char file_path[MAX_PATH_LENGTH];
             snprintf(file_path, MAX_PATH_LENGTH, "%s/%s", data_path, entry->d_name);
             
-            printf("Deleting file: %s\n", file_path);
             if (remove(file_path) != 0) {
                 printf("Warning: Failed to delete file %s: %s\n", 
                        file_path, strerror(errno));
@@ -59,24 +75,20 @@ void delete_dataset(const char* name) {
                data_path, strerror(errno));
     }
 
-    // Delete index.json from main directory
+
     char index_path[MAX_PATH_LENGTH];
     snprintf(index_path, MAX_PATH_LENGTH, "%s/index.json", name);
-    printf("Deleting file: %s\n", index_path);
     if (remove(index_path) != 0 && errno != ENOENT) {
         printf("Warning: Failed to delete index file %s: %s\n", 
                index_path, strerror(errno));
     }
 
-    // Delete the data subdirectory
-    printf("Deleting directory: %s\n", data_path);
+
     if (RMDIR(data_path) != 0 && errno != ENOENT) {
         printf("Warning: Failed to delete data directory %s: %s\n", 
                data_path, strerror(errno));
     }
 
-    // Finally delete the main dataset directory
-    printf("Deleting directory: %s\n", name);
     if (RMDIR(name) != 0 && errno != ENOENT) {
         printf("Warning: Failed to delete dataset directory %s: %s\n", 
                name, strerror(errno));
@@ -103,12 +115,9 @@ int bulk_insert(BPT* tree, const cJSON* entries) {
         int key = key_obj->valueint;
         const char* line = line_obj->valuestring;
 
-        printf("Bulk inserting: Key=%d, Value=%s\n", key, line);
         insert(tree, key, line);
         count++;
     }
-
-    printf("Bulk insert completed: %d entries inserted\n", count);
     return count;
 }
 
@@ -121,14 +130,12 @@ cJSON* search_key(BPT* tree, int key) {
         return NULL;
     }
 
-    // Find the key's position in the leaf node
     int pos = binary_search(leaf->keys, leaf->n, key);
     if (pos == -1) {
         printf("Key %d not found\n", key);
         return NULL;
     }
 
-    // Read the line from the data file
     char buffer[1024];
     int result = dfh_read_line(tree->dataset_name, leaf->file_pointer, key, buffer, sizeof(buffer));
     if (result != DFH_SUCCESS) {
@@ -136,7 +143,6 @@ cJSON* search_key(BPT* tree, int key) {
         return NULL;
     }
 
-    // Create JSON response
     cJSON* response = cJSON_CreateObject();
     if (!response) return NULL;
 
@@ -152,30 +158,23 @@ cJSON* range_query_dataset(BPT* tree, int start_key, int end_key) {
         return NULL;
     }
 
-    // Create JSON array for results
     cJSON* results = cJSON_CreateArray();
     if (!results) return NULL;
 
-    // Get first leaf node
     Node* cursor = tree->root;
     while (!cursor->is_leaf) {
         cursor = cursor->children[0];
     }
 
-    // Find the first node containing keys in our range
     while (cursor && cursor->keys[0] <= end_key) {
         char buffer[1024];
         
-        // Check each key in this node
         for (int i = 0; i < cursor->n; i++) {
             int current_key = cursor->keys[i];
             
-            // If key is in range
             if (current_key >= start_key && current_key <= end_key) {
-                // Read directly from file
                 if (dfh_read_line(tree->dataset_name, cursor->file_pointer, 
                                 current_key, buffer, sizeof(buffer)) == DFH_SUCCESS) {
-                    // Add to results
                     cJSON* entry = cJSON_CreateObject();
                     if (entry) {
                         cJSON_AddNumberToObject(entry, "key", current_key);
@@ -185,7 +184,6 @@ cJSON* range_query_dataset(BPT* tree, int start_key, int end_key) {
                 }
             }
             
-            // If we've passed the end key, we're done
             if (current_key > end_key) {
                 return results;
             }
@@ -208,8 +206,30 @@ int delete_from_dataset(BPT* tree, int key) {
         printf("Error: Failed to delete key %d from dataset\n", key);
         return -1;
     }
-    printf("Key %d deleted from dataset\n", key);
     return 0;
+}
+
+void log_request(const char* dataset_name, const char* raw_request, const char* client_ip, int client_port) {
+    char log_path[MAX_PATH_LENGTH];
+    snprintf(log_path, sizeof(log_path), "%s/logs.txt", dataset_name);
+    
+    FILE* log_file = fopen(log_path, "a");
+    if (!log_file) return;
+
+    time_t now;
+    struct tm* timeinfo;
+    char timestamp[26];
+    
+    time(&now);
+    timeinfo = localtime(&now);
+    strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", timeinfo);
+
+    fprintf(log_file, "\n=== %s ===\n", timestamp);
+    fprintf(log_file, "Client: %s:%d\n", client_ip, client_port);
+    fprintf(log_file, "Request:\n%s\n", raw_request);
+    fprintf(log_file, "=====================================\n");
+
+    fclose(log_file);
 }
 
 

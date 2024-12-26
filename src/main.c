@@ -11,6 +11,7 @@
 #include "../lib/dfh.h"
 #include "../lib/service.h"
 #include <cJSON.h>
+#include <ws2tcpip.h>  // For INET_ADDRSTRLEN and inet_ntop
 
 #pragma comment(lib, "ws2_32.lib")
 
@@ -75,7 +76,7 @@ void load_datasets() {
     FILE* file = fopen(DATASETS_FILE, "r");
     
     if (!file) {
-        // File doesn't exist, create it
+
         file = fopen(DATASETS_FILE, "w");
         if (!file) {
             printf("Error: Could not create datasets file\n");
@@ -85,10 +86,8 @@ void load_datasets() {
         return;
     }
 
-    // Read existing datasets
     char line[MAX_PATH_LENGTH];
     while (fgets(line, sizeof(line), file)) {
-        // Remove newline if present
         size_t len = strlen(line);
         if (len > 0 && line[len-1] == '\n') {
             line[len-1] = '\0';
@@ -99,7 +98,6 @@ void load_datasets() {
             break;
         }
 
-        // Create Dataset entry
         strncpy(datasets[dataset_count].name, line, MAX_PATH_LENGTH - 1);
         datasets[dataset_count].tree = NULL;
         datasets[dataset_count].last_accessed = time(NULL);
@@ -141,6 +139,12 @@ BPT* find_BPT_by_name(const char* name) {
 
 DWORD WINAPI handle_client(LPVOID client_socket) {
     SOCKET sock = (SOCKET)client_socket;
+    struct sockaddr_in client_addr;
+    int addr_len = sizeof(client_addr);
+    getpeername(sock, (struct sockaddr*)&client_addr, &addr_len);
+    char* client_ip = inet_ntoa(client_addr.sin_addr);
+    int client_port = ntohs(client_addr.sin_port);
+
     char* buffer = malloc(MAX_REQUEST_SIZE);
     if (!buffer) {
         const char* error = "{\"error\": \"Server memory allocation failed\", \"code\": 500}";
@@ -149,19 +153,15 @@ DWORD WINAPI handle_client(LPVOID client_socket) {
         return 1;
     }
 
-    // Initialize buffer
+    
+
     memset(buffer, 0, MAX_REQUEST_SIZE);
     int total_bytes = 0;
     int bytes_received;
-
-    // Read in a loop until we get the complete request
     while ((bytes_received = recv(sock, buffer + total_bytes, MAX_REQUEST_SIZE - total_bytes - 1, 0)) > 0) {
         total_bytes += bytes_received;
-        buffer[total_bytes] = '\0';  // Ensure null termination
+        buffer[total_bytes] = '\0';  
         
-        printf("Received %d bytes, total: %d bytes\n", bytes_received, total_bytes);
-
-        // Check if we've received the complete request
         if (strstr(buffer, "\r\n\r\n")) {
             // If this is a POST request, check Content-Length
             if (strstr(buffer, "POST") == buffer) {
@@ -171,29 +171,23 @@ DWORD WINAPI handle_client(LPVOID client_socket) {
                     char* body = strstr(buffer, "\r\n\r\n");
                     if (body) {
                         body += 4;
-                        printf("Body length: %zu, Expected length: %d\n", strlen(body), content_length);
                         if ((int)strlen(body) >= content_length) {
-                            printf("Complete request received!\n");
                             break;  // We have the complete request
                         } else {
-                            printf("Still need %d more bytes\n", content_length - (int)strlen(body));
                         }
                     }
                 } else {
                     // No Content-Length header for POST request
-                    printf("POST request without Content-Length, stopping\n");
                     break;
                 }
             } else {
                 // Not a POST request, we can stop after headers
-                printf("Not a POST request, stopping after headers\n");
                 break;
             }
         }
         
         // Check if buffer is full
         if (total_bytes >= MAX_REQUEST_SIZE - 1) {
-            printf("Request too large (max: %d)\n", MAX_REQUEST_SIZE);
             const char* error = "{\"error\": \"Request too large\", \"code\": 413}";
             send(sock, error, strlen(error), 0);
             free(buffer);
@@ -223,13 +217,12 @@ DWORD WINAPI handle_client(LPVOID client_socket) {
         return 1;
     }
 
-    // Parse request
+
     Request req = {0};
     Response res = {0};
     parse_request(buffer, &req);
     parse_path_params(&req);
 
-    // Get dataset name
     Param* dataset_param = get_path_param(&req, "dataset");
     if (!dataset_param) {
         const char* error = "{\"error\": \"Missing dataset parameter\", \"code\": 400}";
@@ -238,8 +231,7 @@ DWORD WINAPI handle_client(LPVOID client_socket) {
         closesocket(sock);
         return 1;
     }
-
-    // Find dataset
+    log_request(dataset_param->value, buffer, client_ip, client_port);
     BPT* tree = NULL;
     if (strcmp(req.method, "POST") != 0 || !strstr(req.path, "/create")) {
         tree = find_BPT_by_name(dataset_param->value);
@@ -258,9 +250,6 @@ DWORD WINAPI handle_client(LPVOID client_socket) {
     // Handle operations
     if (strcmp(req.method, "POST") == 0) {
         if (strstr(req.path, "/bulk")) {
-            printf("\n=== Debug: Bulk Insert Request ===\n");
-            printf("Request body: %s\n", req.body);
-            
             if (!req.body[0]) {
                 const char* error = "{\"error\": \"Empty request body\", \"code\": 400}";
                 send(sock, error, strlen(error), 0);
@@ -271,15 +260,12 @@ DWORD WINAPI handle_client(LPVOID client_socket) {
                     const char* error = "{\"error\": \"Invalid JSON in request body\", \"code\": 400}";
                     send(sock, error, strlen(error), 0);
                 } else {
-                    printf("JSON parsed successfully. Root type: %d\n", root->type);
                     cJSON* entries = cJSON_GetObjectItem(root, "entries");
                     if (!entries || !cJSON_IsArray(entries)) {
-                        printf("Entries not found or not an array\n");
                         const char* error = "{\"error\": \"Missing or invalid 'entries' array\", \"code\": 400}";
                         send(sock, error, strlen(error), 0);
                         cJSON_Delete(root);
                     } else {
-                        printf("Found entries array with %d items\n", cJSON_GetArraySize(entries));
                         int count = bulk_insert(tree, entries);
                         cJSON_Delete(root);
 
@@ -446,16 +432,11 @@ DWORD WINAPI handle_client(LPVOID client_socket) {
             }
             
             if (found_index >= 0) {
-                // Remove from file
                 remove_dataset_from_file(dataset_param->value);
-                
-                // Remove from array by shifting remaining elements
                 for (int i = found_index; i < dataset_count - 1; i++) {
                     datasets[i] = datasets[i + 1];
                 }
                 dataset_count--;
-                
-                // Delete actual dataset
                 delete_dataset(dataset_param->value);
                 
                 cJSON* response = cJSON_CreateObject();
@@ -558,18 +539,18 @@ int main() {
         CloseHandle(cleanup_thread);
         return 1;
     }
-
-    // Wait for server thread (keeps program running)
     WaitForSingleObject(server_thread, INFINITE);
 
     // Cleanup
     CloseHandle(cleanup_thread);
     CloseHandle(server_thread);
     DeleteCriticalSection(&datasets_mutex);
+    for (int i = 0; i < dataset_count; i++) {
+        free_tree(datasets[i].tree);
+    }
     return 0;
 }
 
-// Add this function to handle dataset file updates
 void add_dataset_to_file(const char* name) {
     FILE* file = fopen(DATASETS_FILE, "a");
     if (file) {

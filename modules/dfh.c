@@ -56,20 +56,16 @@ int dfh_write_line(const char* dataset_name, const char* file_pointer, int key, 
     if (!full_path) return DFH_ERROR_OPEN;
     
     
-    // Create temp file in the same directory
     char temp_path[MAX_PATH_LENGTH];
     snprintf(temp_path, MAX_PATH_LENGTH, "%s/data/temp_%s.dat", 
              dataset_name, file_pointer);
     
-    // Open original file for reading (create if doesn't exist)
     FILE* read_file = fopen(full_path, "a+");
     if (!read_file) {
         free(full_path);
         return DFH_ERROR_OPEN;
     }
-    rewind(read_file);  // Move to start of file
-    
-    // Open temp file for writing
+    rewind(read_file);  
     FILE* temp_file = fopen(temp_path, "w");
     if (!temp_file) {
         fclose(read_file);
@@ -81,35 +77,25 @@ int dfh_write_line(const char* dataset_name, const char* file_pointer, int key, 
     char buffer[MAX_LINE_SIZE];
     int current_key;
     
-    // Copy existing content and insert new line in order
     while (fgets(buffer, sizeof(buffer), read_file)) {
         sscanf(buffer, "%d", &current_key);
-        
-        // If we find where our new key should go
         if (!key_written && key < current_key) {
             fprintf(temp_file, "%d\t%s%s", key, line, 
                     (line[strlen(line)-1] != '\n') ? "\n" : "");
             key_written = true;
         }
-        
-        // Skip if it's a duplicate key
         if (current_key != key) {
             fputs(buffer, temp_file);
         }
-    }
-    
-    // If key wasn't written yet (largest key or empty file)
+    } 
     if (!key_written) {
         fprintf(temp_file, "%d\t%s%s", key, line, 
                 (line[strlen(line)-1] != '\n') ? "\n" : "");
     }
-    
-    // Close both files
     fclose(read_file);
     fclose(temp_file);
     
-    // Replace original file with temp file
-    if (remove(full_path) != 0 && errno != ENOENT) {  // ENOENT means file doesn't exist
+    if (remove(full_path) != 0 && errno != ENOENT) {  
         printf("Error removing original file: %s\n", full_path);
         free(full_path);
         return DFH_ERROR_WRITE;
@@ -140,7 +126,7 @@ int dfh_read_line(const char* dataset_name, const char* file_pointer, int key, c
         if (sscanf(line, "%d", &found_key) == 1 && found_key == key) {
             char* tab_pos = strchr(line, '\t');
             if (tab_pos) {
-                tab_pos++; // Skip the tab
+                tab_pos++; 
                 strncpy(buffer, tab_pos, buffer_size - 1);
                 buffer[buffer_size - 1] = '\0';
                 fclose(file);
@@ -156,7 +142,7 @@ int dfh_read_line(const char* dataset_name, const char* file_pointer, int key, c
 int dfh_move_lines(const char* dataset_name, const char* source_fp, const char* dest_fp, int* keys, int num_keys) {
     char buffer[MAX_LINE_SIZE];
     
-    // First copy the lines to destination
+
     for (int i = 0; i < num_keys; i++) {
         if (dfh_read_line(dataset_name, source_fp, keys[i], buffer, sizeof(buffer)) == DFH_SUCCESS) {
             if (dfh_write_line(dataset_name, dest_fp, keys[i], buffer) != DFH_SUCCESS) {
@@ -194,7 +180,6 @@ int dfh_merge_files(const char* dataset_name, const char* taker_fp, const char* 
         return DFH_ERROR_OPEN;
     }
 
-    // Read all lines from giver and write to taker
     char line[MAX_LINE_SIZE];
     int key;
     char content[MAX_LINE_SIZE];
@@ -212,7 +197,6 @@ int dfh_merge_files(const char* dataset_name, const char* taker_fp, const char* 
 
     fclose(giver);
 
-    // Delete the giver file after successful merge
     if (remove(giver_path) != 0) {
         printf("Warning: Failed to delete giver file %s\n", giver_path);
     }
@@ -296,11 +280,9 @@ int dfh_delete_lines(const char* dataset_name, const char* file_pointer, int* ke
     fclose(temp);
     
     if (!has_content) {
-        // If file is empty after deletions, remove both files
         remove(full_path);
         remove(temp_path);
     } else {
-        // Replace original with temp file
         remove(full_path);
         rename(temp_path, full_path);
     }
