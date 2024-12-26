@@ -6,8 +6,6 @@
 #include "../lib/utils.h"
 #include "../lib/dfh.h"
 
-static int seed_initialized = 0;
-
 char* generate_file_pointer() {
     static unsigned int counter = 0;
     srand((unsigned int)time(NULL) + clock() + (counter++));

@@ -28,8 +28,8 @@ void parse_request(const char* raw_request, Request* req) {
         body_start += 4;
         size_t body_length = strlen(body_start);
         if (body_length >= sizeof(req->body)) {
-            printf("Warning: Body truncated from %zu to %zu bytes\n", 
-                   body_length, sizeof(req->body) - 1);
+            printf("Warning: Body truncated from %lu to %lu bytes\n", 
+                   (unsigned long)body_length, (unsigned long)(sizeof(req->body) - 1));
         }
         strncpy(req->body, body_start, sizeof(req->body) - 1);
     }

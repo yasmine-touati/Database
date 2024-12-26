@@ -19,6 +19,7 @@ Node* get_last_leaf_node(BPT *tree);
 char** ranged_query(BPT *tree, int low_limit, int up_limit, int *low_offset, int *up_offset);
 void free_tree(BPT* tree);
 void free_node(Node *node, const char* dataset_name);
+void free_node_and_not_file(Node *node);
 
 #endif
 

@@ -19,7 +19,6 @@
 #define DATASETS_FILE "datasets.txt"
 #define INACTIVE_TIMEOUT 1800
 #define CHECK_INTERVAL 360
-#define MAX_REQUEST_SIZE 61440  // 60KB in bytes
 #define DEFAULT_PORT 6667
 #define MAX_PENDING_CONNECTIONS 10
 
@@ -50,6 +49,7 @@ void update_access_time(int index) {
 }
 
 DWORD WINAPI cleanup_inactive_datasets(LPVOID arg) {
+    (void)arg;
     while (1) {
         time_t current_time = time(NULL);
         EnterCriticalSection(&datasets_mutex);
@@ -219,7 +219,6 @@ DWORD WINAPI handle_client(LPVOID client_socket) {
 
 
     Request req = {0};
-    Response res = {0};
     parse_request(buffer, &req);
     parse_path_params(&req);
 
@@ -461,6 +460,7 @@ DWORD WINAPI handle_client(LPVOID client_socket) {
 }
 
 DWORD WINAPI run_server(LPVOID arg) {
+    (void)arg;
     WSADATA wsa;
     SOCKET server_socket, client_socket;
     struct sockaddr_in server, client;
